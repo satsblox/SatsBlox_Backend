@@ -216,8 +216,9 @@ Response:
 }
 ```
 
-### Register a Parent Account
+### 🔐 Authentication Endpoints
 
+#### 1. Register a New Parent Account
 ```bash
 curl -X POST http://localhost:3000/api/auth/register \
   -H "Content-Type: application/json" \
@@ -232,9 +233,63 @@ curl -X POST http://localhost:3000/api/auth/register \
 Response (201 Created):
 ```json
 {
-  "message": "User registered successfully",
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "message": "Parent registered successfully",
+  "parent": {
+    "id": 1,
+    "email": "charity@example.com",
+    "fullName": "Charity Muigai",
+    "phoneNumber": "+254700000000",
+    "createdAt": "2024-02-17T10:30:00Z"
+  },
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
+```
+
+#### 2. Login (Authenticate Existing Parent)
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "charity@example.com",
+    "password": "StrongPassword123!"
+  }'
+```
+
+Response (200 OK):
+```json
+{
+  "message": "Login successful",
+  "parent": { ... },
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+#### 3. Refresh Token (Get New Access Token)
+When your access token expires, use the refresh token to get a new one:
+
+```bash
+curl -X POST http://localhost:3000/api/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
+```
+
+Response (200 OK):
+```json
+{
+  "message": "Token refreshed successfully",
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+#### 4. Access Protected Endpoint (with Bearer Token)
+```bash
+curl -X GET http://localhost:3000/api/protected \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 ```
 
 ### Validation Examples
@@ -251,7 +306,11 @@ curl -X POST http://localhost:3000/api/auth/register \
 Response (400 Bad Request):
 ```json
 {
-  "message": "Missing required fields: fullName, email, password, phoneNumber"
+  "message": "Registration validation failed",
+  "errors": {
+    "password": "Password is required and must be a string",
+    "phoneNumber": "Phone number is required and must be a string"
+  }
 }
 ```
 
@@ -259,7 +318,8 @@ Response (400 Bad Request):
 Register the same email twice — second attempt returns (409 Conflict):
 ```json
 {
-  "message": "An account with that email already exists"
+  "message": "Email already registered",
+  "error": "EMAIL_EXISTS"
 }
 ```
 
@@ -271,13 +331,53 @@ curl -X POST http://localhost:3000/api/auth/register \
     "fullName": "Jane Doe",
     "email": "jane@example.com",
     "password": "StrongPassword123!",
-    "phoneNumber": "0712345678"
+    "phoneNumber": "0712345678"  # Missing country code
   }'
 ```
 Response (400 Bad Request):
 ```json
 {
-  "message": "Phone number must be in Kenyan format: +2547XXXXXXXX"
+  "message": "Registration validation failed",
+  "errors": {
+    "phoneNumber": "Phone number must be in Kenyan format: +2547XXXXXXXX (e.g., +254700123456)"
+  }
+}
+```
+
+**Invalid email**:
+```bash
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fullName": "Jane Doe",
+    "email": "not-an-email",
+    "password": "StrongPassword123!",
+    "phoneNumber": "+254700000000"
+  }'
+```
+Response (400 Bad Request):
+```json
+{
+  "message": "Registration validation failed",
+  "errors": {
+    "email": "Invalid email format"
+  }
+}
+```
+
+**Invalid credentials on login**:
+```bash
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "charity@example.com",
+    "password": "WrongPassword123!"
+  }'
+```
+Response (401 Unauthorized):
+```json
+{
+  "message": "Invalid credentials"
 }
 ```
 
@@ -287,45 +387,97 @@ Response (400 Bad Request):
 Satsblox backend/
 ├── src/
 │   ├── config/
-│   │   ├── env.js          # Environment validation (dotenv + Joi)
-│   │   ├── db.js           # Prisma client singleton & health checks
-│   │   └── swagger.js      # Minimal OpenAPI spec stub
+│   │   ├── env.js              # Environment validation (dotenv + Joi)
+│   │   ├── db.js               # Prisma client singleton & health checks
+│   │   └── swagger.js          # OpenAPI 3.0 specification
+│   ├── controllers/
+│   │   └── authController.js   # HTTP handlers (register, login, refresh)
+│   ├── middleware/
+│   │   ├── authMiddleware.js   # JWT verification for protected routes
+│   │   └── errorHandler.js     # Global error handling & standardization
+│   ├── services/
+│   │   └── authService.js      # Business logic (bcrypt, JWT, DB operations)
 │   ├── routes/
-│   │   └── auth.js         # Authentication endpoints (/api/auth/register)
-│   └── server.js           # Express app setup & startup sequence
+│   │   └── auth.js             # Express router for /api/auth endpoints
+│   ├── utils/
+│   │   └── validators.js       # Reusable validation functions
+│   └── server.js               # Express app setup & startup sequence
 ├── prisma/
-│   └── schema.prisma       # Prisma schema (Parent model)
-├── .env.example            # Template for environment variables
-├── docker-compose.yml      # PostgreSQL 15 container definition
+│   ├── schema.prisma           # Prisma schema (Parent, Child, Wallet models)
+│   ├── seed.js                 # Test data seeding script
+│   └── migrations/             # Version-controlled database migrations
+├── .env.example                # Template for environment variables
+├── docker-compose.yml          # PostgreSQL 15 container definition
 ├── package.json
-└── README.md
+├── AUTH_ARCHITECTURE.md        # Detailed authentication architecture docs
+├── AUTH_QUICK_REFERENCE.md     # Quick reference for auth implementation
+├── README.md                   # This file
+└── ...other docs
 ```
+
+**Key Files for Sprint 1 (Authentication)**:
+- `src/routes/auth.js` - All auth endpoints with Swagger docs
+- `src/controllers/authController.js` - Request/response handlers
+- `src/services/authService.js` - JWT and password logic
+- `src/middleware/authMiddleware.js` - Token verification
+- `src/utils/validators.js` - Input validation
+- `AUTH_ARCHITECTURE.md` - Full implementation guide
+- `AUTH_QUICK_REFERENCE.md` - Quick developer reference
 
 ## 🔐 Security & Best Practices
 
-### Implemented
+### Implemented in Sprint 1
 
-✅ **Environment Validation**: App fails fast if `DATABASE_URL`, `JWT_SECRET`, or `PORT` are missing  
-✅ **Password Hashing**: bcrypt with 10 salt rounds  
-✅ **Email Uniqueness**: Database constraint + application-level check  
-✅ **Detailed Error Diagnostics**: Database health checks categorize errors (timeout, auth failure, not found, etc.)  
-✅ **Graceful Shutdown**: SIGTERM handling to disconnect cleanly  
-✅ **Swagger Documentation**: Auto-generated API docs with examples  
+✅ **JWT Authentication**: Secure token-based authentication with access/refresh token rotation  
+✅ **Password Hashing**: bcrypt with 10 salt rounds (~100ms per hash, prevents brute force)  
+✅ **Email Uniqueness**: Database UNIQUE constraint + application-level check  
+✅ **Input Validation**: Comprehensive validators for email, password, phone (Kenyan format)  
+✅ **Error Handling**: Global error middleware with consistent JSON responses  
+✅ **Vague Error Messages**: "Invalid credentials" instead of user enumeration hints  
+✅ **Token Verification**: JWT signature validation (HS256) and expiration checking  
+✅ **Middleware Architecture**: `authenticate()` middleware protects private routes  
+✅ **Environment Validation**: App fails fast if required env vars missing (DATABASE_URL, JWT_SECRET)  
+✅ **Graceful Shutdown**: SIGTERM handling to close connections cleanly  
+✅ **Swagger Documentation**: Auto-generated API docs with JWT bearer scheme  
+✅ **Layered Architecture**: Separation of concerns (routes → controllers → services → utils)
+
+### Authentication Features
+
+**Token Management**:
+- **Access Token**: 7 minute lifespan (short-lived for security)
+- **Refresh Token**: 7 day lifespan (long-lived for convenience)
+- **Token Rotation**: New tokens on each login (prevents replay attacks)
+
+**Kenyan Localization**:
+- Phone number validation: +2547XXXXXXXX format (M-Pesa compatible)
+- Internationalized validation error messages
+- Ready for future SMS/USSD features
 
 ### Production Checklist
 
 Before deploying:
 
-- [ ] Set strong `JWT_SECRET` (min 16 chars, ideally 32+)
-- [ ] Enable HTTPS/TLS for all connections
-- [ ] Use a managed PostgreSQL service (AWS RDS, DigitalOcean, Heroku Postgres, etc.)
+- [ ] Set strong `JWT_SECRET` (min 16 chars, use `openssl rand -base64 32` to generate)
+- [ ] Enable HTTPS/TLS for all connections (use reverse proxy like nginx or CloudFlare)
+- [ ] Use managed PostgreSQL (AWS RDS, DigitalOcean, Azure Database)
 - [ ] Set `NODE_ENV=production`
-- [ ] Use environment variables securely (secrets manager, not .env in production)
-- [ ] Enable rate limiting on `/api/auth/register`
-- [ ] Add CORS headers if frontend is on a different origin
-- [ ] Implement logging aggregation (Sentry, LogRocket, ELK stack)
-- [ ] Set up database backups
-- [ ] Monitor for failed login attempts (brute force protection)
+- [ ] Use secrets manager for sensitive config (AWS Secrets Manager, Vault, etc.)
+- [ ] Implement rate limiting on auth endpoints (prevent brute force)
+- [ ] Configure CORS headers for frontend domains
+- [ ] Set up logging aggregation (Sentry, DataDog, ELK)
+- [ ] Enable database encryption at rest
+- [ ] Set up automated database backups (daily minimum)
+- [ ] Monitor failed login attempts per IP/email
+- [ ] Implement account lockout after N failed attempts
+- [ ] Use HTTPS-only cookies for refresh tokens
+- [ ] Set up security headers (CSP, X-Frame-Options, etc.)
+- [ ] Update dependencies regularly: `npm audit fix`
+
+### Documentation References
+
+- **Detailed Architecture**: [AUTH_ARCHITECTURE.md](./AUTH_ARCHITECTURE.md)
+- **Quick Reference**: [AUTH_QUICK_REFERENCE.md](./AUTH_QUICK_REFERENCE.md)
+- **Security Best Practices**: [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 
 ## 🛠️ Development
 

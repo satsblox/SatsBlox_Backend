@@ -14,6 +14,9 @@ const express = require('express');
 const { prisma, healthCheck, disconnect } = require('./config/db');
 const swaggerUi = require('swagger-ui-express');
 
+// Import error handling middleware
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+
 // Attempt to load prepared swagger specs if present; if the config file is missing
 // the route will still be set up defensively.
 let swaggerSpecs = {};
@@ -25,6 +28,7 @@ try {
 
 // Import routes
 const authRoutes = require('./routes/auth');
+const childRoutes = require('./routes/childRoutes');
 
 // Create Express app
 const app = express();
@@ -46,10 +50,23 @@ if (swaggerSpecs && Object.keys(swaggerSpecs).length) {
 // Mount auth routes under /api/auth
 app.use('/api/auth', authRoutes);
 
+// Mount family management routes under /api/family
+app.use('/api/family/children', childRoutes);
+
 // Root health-check route
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'SatsBlox Backend is Running!' });
 });
+
+// ============================================
+// Error Handling (must be after all routes)
+// ============================================
+// 404 handler for non-existent routes
+app.use(notFoundHandler);
+
+// Global error handler (catches errors from routes/middleware)
+// This MUST be the last middleware
+app.use(errorHandler);
 
 // ============================================
 // Startup Sequence

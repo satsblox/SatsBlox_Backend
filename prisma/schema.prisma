@@ -66,6 +66,32 @@ model Parent {
   // Never log this field. Minimum 60 chars (bcrypt hash length)
   password  String  @db.VarChar(255)
 
+  // ---- JWT Token Management ----
+  // refreshToken: Current valid refresh token (stored for invalidation on logout)
+  // [SENSITIVE] - Must be excluded from API responses
+  // null = no valid refresh token (user is logged out)
+  // Updated on every login/refresh; cleared on logout
+  refreshToken String? @db.Text
+
+  // ---- Rate Limiting & Security ----
+  // failedLoginAttempts: Counter for consecutive failed login attempts
+  // Resets to 0 on successful login
+  // When reaches threshold (5), account is temporarily locked
+  // Prevents brute-force attacks by limiting authentication attempts
+  failedLoginAttempts Int       @default(0)
+
+  // lastFailedLoginAttempt: Timestamp of the most recent failed login attempt
+  // Used to implement automatic unlock after timeout period (e.g., 15 minutes)
+  // null = no failed attempts yet, or counter was reset
+  lastFailedLoginAttempt DateTime?
+
+  // lockedUntil: Timestamp when account is temporarily locked (if locked)
+  // null = account is not locked
+  // Set when failedLoginAttempts reaches threshold
+  // User cannot log in until current time > lockedUntil
+  // Automatically unlocked by time or manual admin action
+  lockedUntil DateTime?
+
   // ---- Relationships ----
   // children: One-to-Many relationship (explicit relation name)
   // One Parent can have many Children (e.g., parent with 3 kids)
@@ -112,6 +138,53 @@ model Child {
   // Example: 2015-03-21 (child would be ~9 years old in 2024)
   dateOfBirth DateTime
 
+  // ---- UI/Gamification Metadata ----
+  // avatar: Optional URL or identifier for child's profile avatar
+  // Can be:
+  //   - URL to hosted image (e.g., "https://avatars.example.com/123.png")
+  //   - Avatar service identifier (e.g., "avatar_emoji_lion")
+  //   - Local emoji/SVG reference (e.g., "emoji:🦁")
+  // Nullable: Child can be created without avatar (parent sets later)
+  // Used by frontend to personalize child's profile and dashboard
+  avatar    String? @db.VarChar(500)
+
+  // colorTheme: Optional theme color/theme identifier for child's profile UI
+  // Can be:
+  //   - Hex color code (e.g., "#FF6B6B", "#4ECDC4")
+  //   - Theme preset name (e.g., "ocean", "sunset", "forest")
+  //   - RGB format (e.g., "rgb(255, 107, 107)")
+  // Nullable: Defaults to parent's theme if not set
+  // Used by frontend to personalize dashboard, progress bars, badges
+  // Example values:
+  //   - "ocean" → blue theme with water vibes
+  //   - "sunset" → warm orange/pink theme
+  //   - "forest" → green theme with nature vibes
+  //   - "#FF6B6B" → custom hex color
+  colorTheme String? @db.VarChar(100)
+
+  // ---- Account Status (Soft Delete) ----
+  // isActive: Soft delete flag - tracks whether account is active or deactivated
+  // true = Account is active (visible in parent's dashboard)
+  // false = Account is deactivated (hidden but not deleted, preserves history)
+  // @default(true): New children are active by default
+  //
+  // Why Soft Delete?
+  //   - Preserves balance/transaction history (audit trail)
+  //   - Parent can reactivate if needed
+  //   - Compliance: GDPR/legal may require data preservation
+  //   - Analytics: Can track deactivation patterns
+  //
+  // Behavior:
+  //   - Queries should filter: WHERE isActive = true (except admin/audit queries)
+  //   - Hard delete not available to parents (only soft delete)
+  //   - Wallet balance persists after deactivation
+  //   - createdAt/updatedAt preserved
+  //
+  // Future: Could add additional fields:
+  //   - deactivatedAt: TIMESTAMP (when account was deactivated)
+  //   - deactivationReason: STRING (why parent deactivated)
+  isActive  Boolean @default(true)
+
   // ---- Foreign Key to Parent ----
   // parentId: Links this Child to their Parent
   // @relation("ParentToChildren"): Explicitly names the relationship for clarity
@@ -134,7 +207,9 @@ model Child {
 
   // ---- Database Constraints ----
   // Foreign key index on parentId for efficient lookups (find children by parent)
+  // Composite index on (parentId, isActive) for fast filtering of active children
   @@index([parentId])
+  @@index([parentId, isActive])
   @@map("children")
 }
 
