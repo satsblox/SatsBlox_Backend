@@ -1,0 +1,251 @@
+// ============================================
+// SatsBlox Prisma Data Schema
+// ============================================
+// This schema defines the core data model for SatsBlox:
+// a Bitcoin savings platform for families in Kenya.
+//
+// Key Entities:
+//   - Parent: Account holder (guardian/parent)
+//   - Child: Beneficiary linked to a Parent
+//   - Wallet: Bitcoin balance container (one per Child)
+//
+// Relationships:
+//   - One Parent → Many Children (One-to-Many)
+//   - One Child → One Wallet (One-to-One)
+//   - One Parent → Many Wallets (through Children)
+//
+// Cascade Rules:
+//   - Deleting a Parent cascade-deletes all Children and their Wallets
+//   - Data integrity is enforced at both DB and application levels
+//
+// Documentation Standards:
+//   Each field and model includes comments explaining its purpose,
+//   format, and any constraints. Sensitive fields are marked [SENSITIVE].
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Parent Model
+// ============================================
+// Represents a parent/guardian account in the SatsBlox ecosystem.
+// Parents manage their own wallets and oversee their children's accounts.
+//
+// Purpose: Store authentication and contact information for guardians
+// who create accounts and manage family savings goals.
+//
+model Parent {
+  // ---- Identifiers ----
+  // id: Unique identifier (auto-incrementing integer; PostgreSQL serial)
+  // Using an integer for simplicity; could use UUID for higher scale
+  id        Int     @id @default(autoincrement())
+
+  // ---- Personal Information ----
+  // fullName: Parent's legal name (e.g., "Charity Muigai")
+  fullName  String  @db.VarChar(255)
+
+  // email: Unique email for authentication and communication
+  // @unique constraint prevents multiple registrations with the same email
+  // Stored in lowercase for case-insensitive lookups
+  email     String  @unique @db.VarChar(255)
+
+  // phoneNumber: Kenyan mobile number in international format (+254...)
+  // Format: +2547XXXXXXXX (country code +254, typically mobile starts with 7)
+  // Stored as string to preserve the + prefix
+  // Future use: M-Pesa integration for payment processing
+  phoneNumber String @db.VarChar(20)
+
+  // password: Hashed password using bcrypt (never store plain text!)
+  // [SENSITIVE] - Must be excluded from API responses
+  // Never log this field. Minimum 60 chars (bcrypt hash length)
+  password  String  @db.VarChar(255)
+
+  // ---- Relationships ----
+  // children: One-to-Many relationship (explicit relation name)
+  // One Parent can have many Children (e.g., parent with 3 kids)
+  // Cascade delete: if Parent is deleted, all Children and Wallets are deleted
+  // @relation("ParentToChildren"): Must match the @relation on Child.parent
+  children  Child[] @relation("ParentToChildren")
+
+  // ---- Timestamps ----
+  // createdAt: Account creation timestamp (automatically set by default)
+  createdAt DateTime @default(now())
+
+  // updatedAt: Last modification timestamp (auto-updated on any change)
+  updatedAt DateTime @updatedAt
+
+  // ---- Database Constraints ----
+  // @map("parents"): Maps the Prisma model to the PostgreSQL table name
+  // This keeps snake_case table names while using PascalCase in code
+  @@map("parents")
+}
+
+// ============================================
+// Child Model
+// ============================================
+// Represents a child/beneficiary account linked to a Parent.
+// Children have their own savings wallets and personalized usernames.
+//
+// Purpose: Store information about children whose savings are managed
+// by their parents. Each Child can have one Wallet.
+//
+model Child {
+  // ---- Identifiers ----
+  // id: Unique identifier (auto-incrementing integer)
+  id        Int     @id @default(autoincrement())
+
+  // username: Unique, display-friendly identifier for the child
+  // (e.g., "mwangi-saving-goal" or "amara-treasure-hunt")
+  // @unique prevents duplicate usernames across all children
+  // Used in URLs and child-facing interfaces
+  username  String  @unique @db.VarChar(100)
+
+  // ---- Personal Information ----
+  // dateOfBirth: Child's date of birth (YYYY-MM-DD format)
+  // Used for age verification and personalized engagement features
+  // Example: 2015-03-21 (child would be ~9 years old in 2024)
+  dateOfBirth DateTime
+
+  // ---- Foreign Key to Parent ----
+  // parentId: Links this Child to their Parent
+  // @relation("ParentToChildren"): Explicitly names the relationship for clarity
+  // When a Parent is deleted, cascade delete removes this Child and its Wallet
+  parentId  Int
+  parent    Parent  @relation("ParentToChildren", fields: [parentId], references: [id], onDelete: Cascade)
+
+  // ---- Relationships ----
+  // wallet: One-to-One relationship with Wallet
+  // Each Child has exactly one Wallet (singular, not array)
+  // If Child is deleted (via parent cascade), Wallet is also deleted
+  wallet    Wallet?
+
+  // ---- Timestamps ----
+  // createdAt: Account creation timestamp
+  createdAt DateTime @default(now())
+
+  // updatedAt: Last modification timestamp
+  updatedAt DateTime @updatedAt
+
+  // ---- Database Constraints ----
+  // Foreign key index on parentId for efficient lookups (find children by parent)
+  @@index([parentId])
+  @@map("children")
+}
+
+// ============================================
+// Wallet Model
+// ============================================
+// Represents a Bitcoin wallet (balance container) for a Child.
+// Stores the child's total accumulated satoshis (smallest Bitcoin unit).
+//
+// Purpose: Track Bitcoin savings accumulated through goals, allowance,
+// and other earning mechanisms. Balance can never be negative.
+//
+model Wallet {
+  // ---- Identifiers ----
+  // id: Unique identifier (auto-incrementing integer)
+  id        Int     @id @default(autoincrement())
+
+  // ---- Balance Information ----
+  // balance: Satoshi amount (1 BTC = 100,000,000 satoshis)
+  // @default(0): Starts at zero when wallet is created
+  // @db.BigInt: Uses 64-bit integer to handle large satoshi amounts (up to ~9.2 billion BTC)
+  // Constraint: balance >= 0 (enforced by check constraint)
+  // TODO: Add database-level CHECK constraint: balance >= 0
+  balance   BigInt  @default(0)
+
+  // ---- Foreign Key to Child ----
+  // childId: Links this Wallet to a Child (One-to-One)
+  // @unique ensures exactly one Wallet per Child (not many)
+  // When a Child is deleted, cascade delete removes this Wallet
+  childId   Int     @unique
+  child     Child   @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  // ---- Timestamps ----
+  // createdAt: Wallet creation timestamp
+  createdAt DateTime @default(now())
+
+  // updatedAt: Last modification timestamp (updated on deposit/withdrawal)
+  updatedAt DateTime @updatedAt
+
+  // ---- Database Constraints ----
+  // @index([childId]): Not necessary due to @unique, but explicit for clarity
+  @@map("wallets")
+}
+
+// ============================================
+// Schema Relationship Flow Diagram
+// ============================================
+//
+// Parent (1)
+//   |
+//   | One-to-Many (One Parent → Many Children)
+//   | onDelete: Cascade
+//   |
+//   └─→ Child[] (Many)
+//         |
+//         | One-to-One (One Child → One Wallet)
+//         | onDelete: Cascade
+//         |
+//         └─→ Wallet (1)
+//
+// Examples:
+//
+// Parent "Charity Muigai" (id=1)
+//   ├─→ Child "amara" (id=10, dateOfBirth=2015-03-21, parentId=1)
+//   │     └─→ Wallet (id=100, balance=500000 satoshis, childId=10)
+//   │
+//   ├─→ Child "liam" (id=11, dateOfBirth=2018-07-15, parentId=1)
+//   │     └─→ Wallet (id=101, balance=250000 satoshis, childId=11)
+//   │
+//   └─→ Child "zara" (id=12, dateOfBirth=2020-11-02, parentId=1)
+//         └─→ Wallet (id=102, balance=0 satoshis, childId=12) [New child]
+//
+// If Parent (id=1) is deleted → All Children (10, 11, 12) and Wallets (100, 101, 102) are deleted
+// If Child (id=10) is deleted → Wallet (id=100) is also deleted
+//
+// ============================================
+// Security & Privacy Notes
+// ============================================
+//
+// [SENSITIVE] Fields (exclude from API responses):
+//   - Parent.password: Hash should never be sent to client
+//
+// Data Validation:
+//   - Email: Must be unique, valid format (enforced in auth route + DB)
+//   - Phone: Must match Kenyan format +2547XXXXXXXX (enforced in auth route)
+//   - Balance: Must be >= 0 (TODO: add DB CHECK constraint)
+//   - Username: Unique, URL-safe (enforced in DB)
+//
+// Audit Trail:
+//   - All models have createdAt and updatedAt timestamps
+//   - Future: Add a Transaction model to track balance changes
+//
+// ============================================
+// Future Enhancements
+// ============================================
+//
+// 1. Transaction Model (for audit trail):
+//    - id, type (deposit/withdrawal), amount, timestamp
+//    - References to Wallet and Parent (for admin visibility)
+//
+// 2. Goal Model (savings targets):
+//    - id, title, targetAmount, deadline
+//    - References to Child or Parent
+//
+// 3. Achievement Model (gamification):
+//    - id, name, description, childId
+//    - Track milestones (first deposit, reach 1M satoshis, etc.)
+//
+// 4. Indexes for Performance:
+//    - CREATE INDEX idx_child_parent ON children(parentId)
+//    - CREATE INDEX idx_wallet_child ON wallets(childId)
+//
+// ============================================
+

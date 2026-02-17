@@ -1,0 +1,59 @@
+# ============================================
+# .gitattributes - Line Ending Configuration
+# ============================================
+# This file standardizes line endings across the project
+# to prevent "CRLF/LF" warnings on Windows, macOS, and Linux.
+#
+# Standard: Use LF (Unix) in version control
+# Benefit: Consistent across all platforms and CI/CD systems
+#
+# How it works:
+# - Git stores files with LF in the repository (universal standard)
+# - Git converts to CRLF on Windows when you check out (if desired)
+# - Git converts back to LF before committing (automatic)
+# - macOS/Linux always work with LF (no conversion needed)
+#
+# ============================================
+
+# Auto normalize all text files to LF
+* text=auto
+
+# Explicitly set line endings for specific file types
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.env text eol=lf
+*.env.example text eol=lf
+*.sql text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.jsx text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+*.xml text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+docker-compose.yaml text eol=lf
+
+# Binary files (don't convert)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
+*.mp3 binary
+*.zip binary
+*.tar binary
+*.gz binary
+
+# Node modules are not typically tracked
+node_modules/ export-ignore
+.git export-ignore
+.gitignore export-ignore

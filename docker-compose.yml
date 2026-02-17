@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  postgres:
+    # PostgreSQL 15+ image (latest stable)
+    image: postgres:15-alpine
+    
+    # Container name for easy reference
+    container_name: satsblox-postgres
+    
+    # Environment variables for PostgreSQL
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: satsblox
+    
+    # Expose port 5432 (PostgreSQL default)
+    ports:
+      - '5432:5432'
+    
+    # Named volume for data persistence (survives container restarts)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    
+    # Health check to ensure DB is ready
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    
+    # Restart policy
+    restart: unless-stopped
+
+volumes:
+  # Named volume definition for persistence
+  postgres_data:
+    driver: local
